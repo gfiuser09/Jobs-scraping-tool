@@ -144,7 +144,103 @@ def map_department(text):
 
 # ==================================================
 # LOCATION STANDARDIZATION
+# (offline city/state lookup first, LLM only as fallback)
 # ==================================================
+
+# ---- Static India City -> (City, State) lookup, fast path, no API calls ----
+CITY_STATE_MAP = {
+    # Karnataka
+    "bangalore": ("Bangalore", "Karnataka"), "bengaluru": ("Bangalore", "Karnataka"),
+    "mysore": ("Mysore", "Karnataka"), "mysuru": ("Mysore", "Karnataka"),
+    "hubli": ("Hubli", "Karnataka"), "mangalore": ("Mangalore", "Karnataka"),
+    "belgaum": ("Belgaum", "Karnataka"), "gadag": ("Gadag", "Karnataka"),
+    "koppal": ("Koppal", "Karnataka"), "honnavar": ("Honnavar", "Karnataka"),
+    "vijayapura": ("Vijayapura", "Karnataka"), "dharwad": ("Dharwad", "Karnataka"),
+    "honwad": ("Honwad", "Karnataka"),
+
+    # Maharashtra
+    "mumbai": ("Mumbai", "Maharashtra"), "navi mumbai": ("Navi Mumbai", "Maharashtra"),
+    "pune": ("Pune", "Maharashtra"), "nagpur": ("Nagpur", "Maharashtra"),
+    "nashik": ("Nashik", "Maharashtra"), "thane": ("Thane", "Maharashtra"),
+    "aurangabad": ("Aurangabad", "Maharashtra"), "solapur": ("Solapur", "Maharashtra"),
+    "kolhapur": ("Kolhapur", "Maharashtra"),
+
+    # Delhi/NCR
+    "delhi": ("Delhi", "Delhi"), "new delhi": ("New Delhi", "Delhi"),
+    "noida": ("Noida", "Uttar Pradesh"), "greater noida": ("Greater Noida", "Uttar Pradesh"),
+    "gurugram": ("Gurugram", "Haryana"), "gurgaon": ("Gurugram", "Haryana"),
+    "faridabad": ("Faridabad", "Haryana"), "ghaziabad": ("Ghaziabad", "Uttar Pradesh"),
+
+    # Tamil Nadu
+    "chennai": ("Chennai", "Tamil Nadu"), "coimbatore": ("Coimbatore", "Tamil Nadu"),
+    "madurai": ("Madurai", "Tamil Nadu"), "dindigul": ("Dindigul", "Tamil Nadu"),
+
+    # Telangana / AP
+    "hyderabad": ("Hyderabad", "Telangana"), "secunderabad": ("Secunderabad", "Telangana"),
+    "maheshwaram": ("Maheshwaram", "Telangana"),
+    "visakhapatnam": ("Visakhapatnam", "Andhra Pradesh"), "vizag": ("Visakhapatnam", "Andhra Pradesh"),
+
+    # West Bengal
+    "kolkata": ("Kolkata", "West Bengal"), "barrackpore": ("Barrackpore", "West Bengal"),
+    "bardhaman": ("Bardhaman", "West Bengal"), "burdwan": ("Bardhaman", "West Bengal"),
+    "siliguri": ("Siliguri", "West Bengal"), "chinsurah": ("Chinsurah", "West Bengal"),
+    "naihati": ("Naihati", "West Bengal"), "madhyamgram": ("Madhyamgram", "West Bengal"),
+    "saltlake": ("Kolkata", "West Bengal"), "salt lake": ("Kolkata", "West Bengal"),
+
+    # Rajasthan
+    "jaipur": ("Jaipur", "Rajasthan"), "bagru": ("Bagru", "Rajasthan"),
+    "jodhpur": ("Jodhpur", "Rajasthan"), "udaipur": ("Udaipur", "Rajasthan"),
+    "kota": ("Kota", "Rajasthan"),
+
+    # Gujarat
+    "ahmedabad": ("Ahmedabad", "Gujarat"), "gandhinagar": ("Gandhinagar", "Gujarat"),
+    "surat": ("Surat", "Gujarat"), "vadodara": ("Vadodara", "Gujarat"),
+
+    # Kerala
+    "cochin": ("Kochi", "Kerala"), "kochi": ("Kochi", "Kerala"),
+    "thiruvananthapuram": ("Thiruvananthapuram", "Kerala"), "trivandrum": ("Thiruvananthapuram", "Kerala"),
+    "kozhikode": ("Kozhikode", "Kerala"), "calicut": ("Kozhikode", "Kerala"),
+
+    # Madhya Pradesh
+    "bhopal": ("Bhopal", "Madhya Pradesh"), "indore": ("Indore", "Madhya Pradesh"),
+    "gwalior": ("Gwalior", "Madhya Pradesh"),
+
+    # Uttarakhand
+    "roorkee": ("Roorkee", "Uttarakhand"), "dehradun": ("Dehradun", "Uttarakhand"),
+    "haridwar": ("Haridwar", "Uttarakhand"),
+
+    # Bihar
+    "patna": ("Patna", "Bihar"), "madhubani": ("Madhubani", "Bihar"),
+
+    # West Bengal (Dinhata etc - Cooch Behar dist)
+    "dinhata": ("Dinhata", "West Bengal"),
+
+    # Goa
+    "goa": ("Goa", "Goa"), "mormugao": ("Mormugao", "Goa"), "panaji": ("Panaji", "Goa"),
+
+    # Punjab / Haryana
+    "chandigarh": ("Chandigarh", "Chandigarh"), "ludhiana": ("Ludhiana", "Punjab"),
+    "amritsar": ("Amritsar", "Punjab"),
+
+    # UP other
+    "lucknow": ("Lucknow", "Uttar Pradesh"), "kanpur": ("Kanpur", "Uttar Pradesh"),
+    "agra": ("Agra", "Uttar Pradesh"),
+}
+
+INDIAN_STATES = {
+    "karnataka", "maharashtra", "tamil nadu", "telangana", "andhra pradesh",
+    "west bengal", "rajasthan", "gujarat", "kerala", "madhya pradesh",
+    "uttarakhand", "bihar", "goa", "punjab", "haryana", "uttar pradesh", "delhi",
+    "chandigarh", "assam", "odisha", "jharkhand", "chhattisgarh",
+}
+
+CITY_KEYS = list(CITY_STATE_MAP.keys())
+
+LOCATION_NOISE_PATTERNS = [
+    r"\bhub\b", r"\bregistered office\b", r"\bcorporate\b", r"\br&d centre\b",
+    r"\bhead office\b", r"\bbranch\b", r"\bunit\s*\d*\b", r"\bmall\b",
+    r"\bwork from home\b",
+]
 
 LOCATION_CACHE = {}
 
@@ -152,107 +248,196 @@ def clean_location(text: str) -> str:
     """Clean raw location text before standardization"""
     if not text or pd.isna(text) or str(text).lower() == 'nan':
         return ""
-    t = str(text).lower()
-    t = re.sub(r"\.\.\+\s*\d+", "", t)              
-    t = re.sub(r"\(.*?\)", "", t)                   
-    t = re.sub(r"\d+\/\d+|\d+\s*mw.*", "", t)       
-    t = re.sub(r"sector[-\s]*\d+[a-z]*", "", t)     
+    t = str(text).strip()
+    t = re.sub(r"\.\.\+\s*\d+", "", t)
+    t = re.sub(r"\(.*?\)", "", t)
+    t = re.sub(r"\d+\/\d+|\d+\s*mw.*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"sector[-\s]*\d+[a-z]*", "", t, flags=re.IGNORECASE)
+    for pat in LOCATION_NOISE_PATTERNS:
+        t = re.sub(pat, "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*-\s*$", "", t)
+    t = re.sub(r",\s*,+", ",", t)
     t = re.sub(r"\s+", " ", t)
-    return t.strip()
+    t = t.strip(" ,-")
+    return t
 
-LOCATION_PROMPT_TEMPLATE = """
-You are a location normalization engine. Return ONLY the normalized location.
+def lookup_city(fragment: str, score_cutoff=90):
+    """Exact match first, then strict fuzzy match with a length-ratio guard
+    to avoid false positives on short strings (e.g. 'Bhagra' vs 'Agra')."""
+    frag = fragment.strip().lower()
+    if not frag:
+        return None
+    if frag in CITY_STATE_MAP:
+        return CITY_STATE_MAP[frag]
 
-RULES:
-1. SINGLE location: City, State, Country (e.g., Bangalore, Karnataka, India)
-2. MULTIPLE cities same country: City1, City2, Country (e.g., Bangalore, Mumbai, India)
-3. NO noise, NO extra words.
+    match = process.extractOne(frag, CITY_KEYS, scorer=fuzz.ratio, score_cutoff=score_cutoff)
+    if match:
+        matched_key = match[0]
+        len_ratio = min(len(frag), len(matched_key)) / max(len(frag), len(matched_key))
+        if len_ratio < 0.7:
+            return None
+        return CITY_STATE_MAP[matched_key]
+    return None
+
+def standardize_location_offline(cleaned: str):
+    """Returns (result_string, resolved: bool). Tries to resolve using the
+    static lookup only - no network calls."""
+    if not cleaned:
+        return "", True
+
+    lower = cleaned.lower()
+    if "remote" in lower:
+        return "Remote", True
+    if "head office" in lower and len(cleaned) < 20:
+        return "Head Office", True
+
+    fragments = [f.strip() for f in cleaned.split(",") if f.strip()]
+
+    found_cities = []
+    for frag in fragments:
+        if frag.lower() == "india":
+            continue
+        if frag.lower() in INDIAN_STATES and frag.lower() not in CITY_STATE_MAP:
+            continue
+        result = lookup_city(frag)
+        if result:
+            city, state = result
+            if city not in [c for c, s in found_cities]:
+                found_cities.append((city, state))
+
+    if not found_cities:
+        return "", False  # unresolved -> caller should try LLM fallback
+
+    if len(found_cities) == 1:
+        city, state = found_cities[0]
+        return f"{city}, {state}, India", True
+
+    states = set(s for c, s in found_cities)
+    city_names = [c for c, s in found_cities[:2]]
+    if len(states) == 1:
+        state = found_cities[0][1]
+        city_names = [c for c in city_names if c.lower() != state.lower()]
+        if not city_names:
+            city_names = [found_cities[0][0]]
+        return f"{', '.join(city_names)}, {state}, India", True
+    else:
+        return f"{', '.join(city_names)}, India", True
+
+LOCATION_PROMPT_TEMPLATE = """You are a location normalization engine.
+
+Normalize the input into ONE of these formats, and output ONLY the result on a single line — no explanation:
+
+1. Single city: City, State, Country
+2. Multiple cities, same country: City1, City2, Country
+3. If not a real, identifiable place: UNKNOWN
 
 Input: {location}
 Output:"""
 
 def post_process_location(llm_output: str) -> str:
-    """Python logic to enforce the format: City1, City2, Country (No State)"""
-    if not llm_output or ";" in llm_output: # Multi-country logic usually uses ;
-        return llm_output
+    """Enforce the format: City1, City2, Country (No State)"""
+    if not llm_output:
+        return ""
+    text = llm_output.strip().strip(",").strip()
+    if text.upper() == "UNKNOWN":
+        return ""
 
-    parts = [p.strip() for p in llm_output.split(',')]
-    
-    # CASE: Multiple Cities + Country (No State)
-    # If LLM returned "City1, State1, City2, State2, Country", we strip states.
-    # We assume if parts > 3 and contains India, it's a multi-city list.
-    if len(parts) > 3:
-        country = parts[-1]
-        # Extract unique cities (assuming cities are the primary nouns)
-        # We take every other part if the LLM returned City, State, City, State
-        cities = []
-        for i in range(0, len(parts)-1):
-            # Very basic check: if the next part is a known country, current is a city
-            # Or just filter out common state names if necessary
-            cities.append(parts[i])
-        
-        # Heuristic: If we have multiple cities, just return City, City, Country
-        # We use dict.fromkeys to preserve order but remove duplicates
-        unique_cities = list(dict.fromkeys(cities))
-        # Remove the country name if it accidentally got into the city list
-        if country in unique_cities: unique_cities.remove(country)
-        
-        return f"{', '.join(unique_cities[:2])}, {country}"
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if not parts:
+        return ""
 
-    return llm_output
+    deduped = []
+    for p in parts:
+        if not deduped or deduped[-1].lower() != p.lower():
+            deduped.append(p)
+    parts = deduped
+
+    if len(parts) <= 3:
+        return ", ".join(parts)
+
+    country = parts[-1]
+    cities = list(dict.fromkeys(parts[:-1]))
+    if country in cities:
+        cities.remove(country)
+    return f"{', '.join(cities[:2])}, {country}"
+
+def call_groq_location(cleaned_loc: str, retries: int = 3):
+    """Call Groq for a single location, retrying on transient errors.
+    Uses the same key-rotation pool as the rest of the pipeline (current_key_index)."""
+    global current_key_index
+
+    total_keys = len(GROQ_API_KEYS)
+    if total_keys == 0:
+        return None
+
+    for attempt in range(retries):
+        active_key = GROQ_API_KEYS[current_key_index]
+
+        try:
+            client = Groq(api_key=active_key)
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": LOCATION_PROMPT_TEMPLATE.format(location=cleaned_loc)}],
+                temperature=0,
+                max_tokens=300,  # reasoning model needs headroom beyond just the answer
+            )
+            choice = response.choices[0]
+            content = choice.message.content.strip() if choice.message.content else ""
+
+            if not content and choice.finish_reason == "length":
+                print(f"  [WARN] LLM truncated before producing content for '{cleaned_loc}'")
+            return content
+
+        except RateLimitError:
+            print(f"Rate limit hit (location) for '{cleaned_loc}'. Rotating key...")
+            current_key_index = (current_key_index + 1) % total_keys
+            time.sleep(2)
+
+        except Exception as e:
+            print(f"Groq location call failed (attempt {attempt+1}/{retries}) for '{cleaned_loc}': {e}")
+            time.sleep(2 * (attempt + 1))
+
+    return None
 
 def standardize_single_location(raw_location: str) -> str:
-    """Standardize a single location using LLM"""
+    """Standardize a single location: offline lookup first, LLM only as fallback."""
     if not raw_location:
         return ""
 
     cleaned_loc = clean_location(raw_location)
     if not cleaned_loc:
         return ""
-    
+
     lower = cleaned_loc.lower()
-    if "remote" in lower: return "Remote"
-    if "head office" in lower: return "Head Office"
-    if lower in LOCATION_CACHE: return LOCATION_CACHE[lower]
+    if lower in LOCATION_CACHE:
+        return LOCATION_CACHE[lower]
 
-    try:
-        # Use a separate Groq client for location standardization
-        # Use first available key from the list
-        active_key = GROQ_API_KEYS[current_key_index] if GROQ_API_KEYS else None
-        if not active_key:
-            return cleaned_loc.title()
-        
-        location_client = Groq(api_key=active_key)
-        response = location_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[{"role": "user", "content": LOCATION_PROMPT_TEMPLATE.format(location=cleaned_loc)}],
-            temperature=0,
-            max_tokens=50,
-        )
-
-        result = response.choices[0].message.content.strip().split('\n')[0]
-        result = result.split("Example")[0].rstrip('.: ')
-
-        # Apply post-processing
-        result = post_process_location(result)
-        
+    # 1. Try fast offline lookup (no API call)
+    result, resolved = standardize_location_offline(cleaned_loc)
+    if resolved:
         LOCATION_CACHE[lower] = result
         return result
 
-    except RateLimitError:
-        print(f"Rate Limit hit during location standardization for '{cleaned_loc}'")
-        # Fall back to cleaned location
-        return cleaned_loc.title()
-    
-    except Exception as e:
-        print(f"Error standardizing location '{cleaned_loc}': {e}")
-        return cleaned_loc.title()
+    # 2. Fall back to LLM only for what the lookup couldn't resolve
+    raw_result = call_groq_location(cleaned_loc)
+    if raw_result is None:
+        print(f"  [FAILED] '{cleaned_loc}' - LLM call failed after retries, falling back to title case")
+        result = cleaned_loc.title()
+    else:
+        first_line = raw_result.split("\n")[0]
+        result = post_process_location(first_line)
+        if not result:
+            print(f"  [UNRESOLVED] '{cleaned_loc}' -> raw LLM output: {raw_result!r}, falling back to title case")
+            result = cleaned_loc.title()
+
+    LOCATION_CACHE[lower] = result
+    return result
 
 def standardize_location(raw_location: str) -> str:
     """Main function to standardize location - to be used in the pipeline"""
     if pd.isna(raw_location) or not str(raw_location).strip():
         return ""
-    
+
     return standardize_single_location(str(raw_location))
 
 
@@ -567,7 +752,7 @@ def run_pipeline():
     print("   - Filter: Job ID Exists in Target")
     print("   - Filter: Description words <= 50")  # CHANGED: 20 to 50
     print("   - Filter: Published Date > 90 days ago")  # CHANGED: 3 months to 90 days
-    print("   - Added: Location Standardization")
+    print("   - Added: Location Standardization (offline lookup + LLM fallback)")
 
     offset = 0
     total_processed = 0
@@ -677,7 +862,7 @@ def run_pipeline():
             max_e = row.get("max_exp")
             exp_range = calculate_experience_string(min_e, max_e)
 
-            # NEW: Standardize location
+            # Standardize location (offline lookup first, LLM fallback second)
             raw_location = row.get("location")
             standardized_location = standardize_location(raw_location)
 
