@@ -2,7 +2,7 @@ name: Running sustain-smartURLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "54 16 * * *"   # 10:24 PM IST
   workflow_dispatch:
 
 jobs:

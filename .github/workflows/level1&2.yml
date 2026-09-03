@@ -2,7 +2,7 @@ name: Running level 1 & 2
 
 on:
   schedule:
-    - cron: "0 20 * * *"
+    - cron: "0 20 * * *"   # 1:30 AM IST
   workflow_dispatch:
 
 jobs:

@@ -2,7 +2,7 @@ name: Running sustain-keka URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "51 16 * * *"   # 10:21 PM IST
   workflow_dispatch:
 
 jobs:

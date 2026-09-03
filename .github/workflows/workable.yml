@@ -2,7 +2,7 @@ name: Running Workable ATS URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "12 17 * * *"   # 10:42 PM IST
   workflow_dispatch:
 
 jobs:

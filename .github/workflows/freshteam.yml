@@ -2,7 +2,7 @@ name: Running Freshteam ATS URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "33 16 * * *"   # 10:03 PM IST
   workflow_dispatch:
 
 jobs:

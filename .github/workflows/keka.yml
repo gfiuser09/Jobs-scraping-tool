@@ -2,7 +2,7 @@ name: Running Keka ATS URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "36 16 * * *"   # 10:06 PM IST
   workflow_dispatch:
 
 jobs:

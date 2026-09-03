@@ -2,7 +2,7 @@ name: Running sustain-zoho URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "3 17 * * *"   # 10:33 PM IST
   workflow_dispatch:
 
 jobs:

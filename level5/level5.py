@@ -15,10 +15,6 @@ from groq import Groq, RateLimitError
 
 load_dotenv()
 
-# ==================================================
-# CONFIGURATION
-# ==================================================
-
 TARGET_TABLE = "jobs_uploadable_wp"
 SOURCE_TABLE = "jobs"
 
@@ -141,11 +137,6 @@ def map_department(text):
     # 3. Fallback
     return "Administration & Operations Support"
 
-
-# ==================================================
-# LOCATION STANDARDIZATION
-# (offline city/state lookup first, LLM only as fallback)
-# ==================================================
 
 # ---- Static India City -> (City, State) lookup, fast path, no API calls ----
 CITY_STATE_MAP = {

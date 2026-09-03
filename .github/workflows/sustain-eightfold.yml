@@ -2,7 +2,7 @@ name: Running sustain-eightfold URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "48 16 * * *"   # 10:18 PM IST
   workflow_dispatch:
 
 jobs:

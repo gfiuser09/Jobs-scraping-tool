@@ -2,7 +2,7 @@ name: Running sustain-workday URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "0 17 * * *"   # 10:30 PM IST
   workflow_dispatch:
 
 jobs:

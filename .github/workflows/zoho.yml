@@ -2,7 +2,7 @@ name: Running Zoho ATS URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "15 17 * * *"   # 10:45 PM IST
   workflow_dispatch:
 
 jobs:

@@ -2,7 +2,7 @@ name: Running level 5 Sustainability
 
 on:
   schedule:
-    - cron: "30 9 * * *"
+    - cron: "33 9 * * *"   # 3:03 PM IST
   workflow_dispatch:
 
 jobs:

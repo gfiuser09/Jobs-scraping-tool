@@ -2,7 +2,7 @@ name: Running sustain-oracle_cloud URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "6 17 * * *"   # 10:36 PM IST
   workflow_dispatch:
 
 jobs:

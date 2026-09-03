@@ -2,7 +2,7 @@ name: Running sustain-darwinbox URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "45 16 * * *"   # 10:15 PM IST
   workflow_dispatch:
 
 jobs:

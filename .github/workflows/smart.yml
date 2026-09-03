@@ -2,7 +2,7 @@ name: Running Smart ATS URLs
 
 on:
   schedule:
-    - cron: "30 16 * * *"   # 10:00 PM IST
+    - cron: "42 16 * * *"   # 10:12 PM IST
   workflow_dispatch:
 
 jobs:
