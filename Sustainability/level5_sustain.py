@@ -377,11 +377,16 @@ Answer:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0,
-                max_tokens=5,
+                max_tokens=20,
             )
 
             result = response.choices[0].message.content.strip().lower()
-            is_india = result.startswith("true")
+            matches = re.findall(r"\b(true|false)\b", result)
+            if not matches:
+                print(f"India check unparseable response for '{location_str}': '{result}'")
+                is_india = False
+            else:
+                is_india = matches[-1] == "true"
 
             INDIA_LOCATION_CACHE[location_lower] = is_india
             return is_india
