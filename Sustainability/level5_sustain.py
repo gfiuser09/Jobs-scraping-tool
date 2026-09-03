@@ -104,33 +104,39 @@ def create_supabase_client_with_retry():
     # Set longer timeouts
     session.timeout = REQUEST_TIMEOUT
     
-    try:
-        # Attempt to create client
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        # Test connection
-        test_query = supabase.table(TARGET_TABLE).select("count", count="exact").limit(1)
-        test_query.execute()
-        
-        print("✅ Supabase client created successfully")
-        return supabase
-        
-    except Exception as e:
-        print(f"❌ Failed to create Supabase client: {e}")
-        print("Attempting alternative connection method...")
-        
-        # Alternative: Try with SSL verification disabled (INSECURE - only for testing)
-        if not ENABLE_SSL_VERIFY:
-            try:
-                session.verify = False
-                # Note: supabase-py doesn't easily accept custom sessions
-                # You might need to use REST API directly
-                print("⚠️  Using SSL verification disabled (INSECURE)")
-                return create_client(SUPABASE_URL, SUPABASE_KEY)
-            except:
-                pass
-        
-        return None
+    for attempt in range(CONNECTION_RETRIES):
+        try:
+            # Attempt to create client
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+            # Test connection
+            test_query = supabase.table(TARGET_TABLE).select("count", count="exact").limit(1)
+            test_query.execute()
+
+            print("✅ Supabase client created successfully")
+            return supabase
+
+        except Exception as e:
+            wait_time = (attempt + 1) * CONNECTION_BACKOFF_FACTOR
+            print(f"❌ Failed to create Supabase client (Attempt {attempt+1}/{CONNECTION_RETRIES}): {e}")
+            if attempt < CONNECTION_RETRIES - 1:
+                print(f"   Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+
+    print("Attempting alternative connection method...")
+
+    # Alternative: Try with SSL verification disabled (INSECURE - only for testing)
+    if not ENABLE_SSL_VERIFY:
+        try:
+            session.verify = False
+            # Note: supabase-py doesn't easily accept custom sessions
+            # You might need to use REST API directly
+            print("⚠️  Using SSL verification disabled (INSECURE)")
+            return create_client(SUPABASE_URL, SUPABASE_KEY)
+        except:
+            pass
+
+    return None
 
 # Initialize Supabase client
 supabase = create_supabase_client_with_retry()
