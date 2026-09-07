@@ -13,16 +13,52 @@ jobs:
     env:
       SUPABASE_URL: ${{secrets.SUPABASE_URL}}
       SUPABASE_KEY: ${{secrets.SUPABASE_KEY}}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: "3.10"
 
-      - run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
-          pip install -r requirements.txt
-          playwright install --with-deps
+      # Restores the whole virtualenv. Every workflow in this repo installs the
+      # same requirements.txt, so they all share one cache entry - whichever
+      # runs first each day populates it for the rest. On a hit the install
+      # step below is skipped entirely: no pip, no downloads. The key includes
+      # the exact Python patch version because a venv symlinks into it.
+      - name: Restore Python venv
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('requirements.txt') }}
 
-      - run: python "Sustainability/workable.py"
+      - name: Install dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          .venv/bin/pip install -r requirements.txt
+
+      # Browser binaries (~150 MB) live in ~/.cache/ms-playwright, outside the
+      # venv, so they need their own cache entry.
+      - name: Restore Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Playwright browsers
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: .venv/bin/playwright install --with-deps
+
+      # Cached browsers still need the apt system libraries on a fresh runner.
+      - name: Install Playwright system deps
+        if: steps.cache-playwright.outputs.cache-hit == 'true'
+        run: .venv/bin/playwright install-deps
+
+      - name: Run script
+        run: .venv/bin/python "Sustainability/workable.py"
