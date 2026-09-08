@@ -1,10 +1,13 @@
 name: Running level 5
 
 on:
+  # Runs once immediately on every deploy to main, then on the interval below.
+  push:
+    branches: [main]
   schedule:
-    # 05:30 UTC = 11:00 AM IST. GitHub cron is always UTC and ignores DST;
-    # IST has no DST, so this stays at 11:00 IST year round.
-    - cron: "30 5 * * *"
+    # Every 6 hours. Minute :24 is unused by the 12-hourly workflows, so these
+    # runs never land on the same minute as one of those.
+    - cron: "24 */6 * * *"
   workflow_dispatch:
 
 jobs:

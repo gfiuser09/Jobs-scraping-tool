@@ -1,12 +1,13 @@
 name: Running level 5 Sustainability
 
 on:
+  # Runs once immediately on every deploy to main, then on the interval below.
+  push:
+    branches: [main]
   schedule:
-    # 05:33 UTC = 11:03 AM IST. GitHub cron is always UTC and ignores DST;
-    # IST has no DST, so this stays at 11:03 IST year round.
-    # Kept 3 minutes behind level5.yml (the existing offset) so the two runs
-    # don't compete for the same six Groq API keys at once.
-    - cron: "33 5 * * *"
+    # Every 6 hours, kept 3 minutes behind level5.yml (the existing offset) so
+    # the two runs don't compete for the same six Groq API keys at once.
+    - cron: "27 */6 * * *"
   workflow_dispatch:
 
 jobs:

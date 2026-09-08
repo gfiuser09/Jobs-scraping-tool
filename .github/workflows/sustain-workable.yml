@@ -1,8 +1,13 @@
 name: Running sustain-workable URLs
 
 on:
+  # Runs once immediately on every deploy to main, then on the interval below.
+  push:
+    branches: [main]
   schedule:
-    - cron: "57 16 * * *"   # 10:27 PM IST
+    # Every 12 hours. The minute offset keeps this 3 min apart from the other
+    # scheduled workflows so they don't all start at once.
+    - cron: "57 */12 * * *"
   workflow_dispatch:
 
 jobs:

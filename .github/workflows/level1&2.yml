@@ -1,8 +1,13 @@
 name: Running level 1 & 2
 
 on:
+  # Runs once immediately on every deploy to main, then on the interval below.
+  push:
+    branches: [main]
   schedule:
-    - cron: "0 20 * * *"   # 1:30 AM IST
+    # Every 12 hours. The minute offset keeps this 3 min apart from the other
+    # scheduled workflows so they don't all start at once.
+    - cron: "18 */12 * * *"
   workflow_dispatch:
 
 jobs:
