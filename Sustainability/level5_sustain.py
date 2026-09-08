@@ -312,7 +312,9 @@ CITY_KEYS = list(CITY_STATE_MAP.keys())
 # signals, so "Bangalore, India" is never misread because of a stray token.
 NON_INDIA_MARKERS = {
     # Countries / regions
-    "usa", "u.s.", "u.s.a.", "united states", "america", "canada", "uk",
+    # "us" is safe here because the India signals (india token, city, state)
+    # are all checked before markers, and \bus\b cannot match inside a word.
+    "us", "usa", "u.s.", "u.s.a.", "united states", "america", "canada", "uk",
     "united kingdom", "england", "scotland", "wales", "ireland", "germany",
     "france", "spain", "italy", "netherlands", "belgium", "sweden", "norway",
     "denmark", "finland", "poland", "switzerland", "austria", "portugal",
@@ -594,6 +596,15 @@ def _offline_india_check(location_lower: str):
         if lookup_city(frag, score_cutoff=95):
             return True
 
+    # 5. Bare "Remote" with no country attached. The India-check prompt has
+    #    always said "Remote = True", but the LLM answered False often enough
+    #    to drop these. Decide it here instead. Reached only after step 3, so
+    #    "Remote, USA" has already been rejected.
+    if REMOTE_PATTERN.search(location_lower):
+        without_remote = REMOTE_PATTERN.sub("", location_lower)
+        if not re.sub(r"[\s,;/|()\-]+", "", without_remote):
+            return True
+
     return None
 
 def is_india_location(location_str: str, standardized: str = None) -> bool:
@@ -728,65 +739,126 @@ def test_connection():
         print(f"❌ Connection test failed: {e}")
         return False
 
+# Postgres rejections that will never succeed on retry. Retrying these just
+# burns ~45s of backoff per call and hides the real message.
+PERMANENT_DB_ERROR_MARKERS = (
+    "violates foreign key constraint",
+    "violates unique constraint",
+    "violates check constraint",
+    "violates not-null constraint",
+    "duplicate key value",
+    "invalid input syntax",
+    "does not exist",
+    "permission denied",
+    "violates row-level security",
+)
+
+_fk_hint_shown = False
+
+def is_permanent_db_error(error_str: str) -> bool:
+    low = error_str.lower()
+    return any(marker in low for marker in PERMANENT_DB_ERROR_MARKERS)
+
+def _explain_fk_once(error_str: str):
+    """The FK failure has a specific, actionable cause - say it once, loudly."""
+    global _fk_hint_shown
+    if _fk_hint_shown or "violates foreign key constraint" not in error_str.lower():
+        return
+    _fk_hint_shown = True
+    print(
+        "\n"
+        "   ------------------------------------------------------------------\n"
+        f"   {TARGET_TABLE}.job_id has a foreign key pointing at the `jobs`\n"
+        f"   table, but this pipeline writes ids from `{SOURCE_TABLE}`, which has\n"
+        "   its own separate id sequence. Any id that does not also exist in\n"
+        "   `jobs` is rejected. The `source_table` column is what distinguishes\n"
+        "   the two pipelines, so the FK needs to be dropped:\n"
+        f"       ALTER TABLE {TARGET_TABLE} DROP CONSTRAINT <fk_name>;\n"
+        "   ------------------------------------------------------------------\n"
+    )
+
 def supabase_execute_with_retry(query_builder, retries=CONNECTION_RETRIES):
-    """Enhanced retry function with exponential backoff"""
+    """Retry transient network failures with exponential backoff.
+    Permanent database rejections return immediately - they never succeed."""
     for attempt in range(retries):
         try:
             return query_builder.execute()
         except Exception as e:
             error_str = str(e)
+
+            # Not a network problem: the database looked at the row and said no.
+            if is_permanent_db_error(error_str):
+                print(f"🚫 Database rejected the request (not retrying): {error_str}")
+                _explain_fk_once(error_str)
+                return None
+
             wait_time = (attempt + 1) * CONNECTION_BACKOFF_FACTOR
-            
+
             if "WinError 10060" in error_str:
                 print(f"⏱️ Connection timeout (Attempt {attempt+1}/{retries}) - Waiting {wait_time}s")
             elif "WinError 10054" in error_str:
                 print(f"🔌 Connection reset (Attempt {attempt+1}/{retries}) - Waiting {wait_time}s")
             else:
-                print(f"🌐 Network Error (Attempt {attempt+1}): {error_str[:100]}...")
+                print(f"🌐 Network Error (Attempt {attempt+1}): {error_str}")
                 print(f"   Waiting {wait_time} seconds...")
-            
+
             time.sleep(wait_time)
-            
+
             # Test connection before retry
             if attempt == retries - 2:  # Second last attempt
                 print("Testing connection before final retry...")
                 test_connection()
-    
+
     print("❌ Critical: Supabase request failed after all retries.")
     return None
 
 def upsert_in_chunks(data, chunk_size=UPSERT_CHUNK_SIZE):
-    """Upsert data in smaller chunks to avoid timeouts"""
+    """Upsert data in smaller chunks. Returns (succeeded_count, failed_job_ids).
+
+    A single rejected row makes Postgres reject the whole chunk, so a failed
+    chunk is retried row by row - the good rows still land instead of being
+    lost alongside the one bad one."""
     if not data:
-        return True
-    
-    all_success = True
+        return 0, []
+
+    succeeded = 0
+    failed_ids = []
     total_chunks = (len(data) + chunk_size - 1) // chunk_size
-    
+
     for i in range(0, len(data), chunk_size):
         chunk = data[i:i+chunk_size]
         chunk_num = i//chunk_size + 1
-        
+
         print(f"📦 Upserting chunk {chunk_num}/{total_chunks} ({len(chunk)} rows)")
-        
+
         try:
-            upsert_query = supabase.table(TARGET_TABLE).upsert(chunk)
-            result = supabase_execute_with_retry(upsert_query)
-            
-            if not result:
-                print(f"❌ Failed to upsert chunk {chunk_num}")
-                all_success = False
-            else:
+            result = supabase_execute_with_retry(supabase.table(TARGET_TABLE).upsert(chunk))
+
+            if result:
                 print(f"✅ Chunk {chunk_num} upserted successfully")
-            
+                succeeded += len(chunk)
+            elif len(chunk) == 1:
+                failed_ids.append(chunk[0].get("job_id"))
+                print(f"❌ Chunk {chunk_num} failed (job_id {chunk[0].get('job_id')})")
+            else:
+                print(f"⚠️ Chunk {chunk_num} failed - retrying its {len(chunk)} rows individually")
+                for row in chunk:
+                    row_res = supabase_execute_with_retry(supabase.table(TARGET_TABLE).upsert(row))
+                    if row_res:
+                        succeeded += 1
+                    else:
+                        failed_ids.append(row.get("job_id"))
+                recovered = len(chunk) - sum(1 for r in chunk if r.get("job_id") in failed_ids)
+                print(f"   Recovered {recovered}/{len(chunk)} rows from chunk {chunk_num}")
+
             # Small delay between chunks
             time.sleep(2)
-            
+
         except Exception as e:
             print(f"❌ Error upserting chunk {chunk_num}: {e}")
-            all_success = False
-    
-    return all_success
+            failed_ids.extend(r.get("job_id") for r in chunk)
+
+    return succeeded, failed_ids
 
 def generate_slug(job_title, company_name):
     def slugify(text):
@@ -1086,7 +1158,8 @@ def run_pipeline():
 
     offset = 0
     total_processed = 0
-    india_skipped = 0  
+    india_skipped = 0
+    rejected_ids = []  # job_ids the database refused (e.g. FK violations)
     consecutive_errors = 0
 
     cutoff_date = pd.Timestamp.now(tz="UTC") - pd.DateOffset(days=90)
@@ -1237,11 +1310,12 @@ def run_pipeline():
 
             if processed_rows:
                 print(f"Upserting {len(processed_rows)} rows to {TARGET_TABLE}...")
-                if upsert_in_chunks(processed_rows):
-                    total_processed += len(processed_rows)
-                    print(f"✅ Success. Total processed: {total_processed}")
-                else:
-                    print(f"⚠️ Some jobs may not have been inserted successfully")
+                ok_count, failed_ids = upsert_in_chunks(processed_rows)
+                total_processed += ok_count
+                if failed_ids:
+                    rejected_ids.extend(failed_ids)
+                    print(f"⚠️ {len(failed_ids)} rows rejected by the database: {failed_ids}")
+                print(f"✅ Total processed: {total_processed}")
 
             offset += BATCH_SIZE
             time.sleep(Rate_Limit_Sleep)
@@ -1262,6 +1336,9 @@ def run_pipeline():
     print(f"PIPELINE COMPLETE")
     print(f"Total jobs processed: {total_processed}")
     print(f"Total non-India jobs skipped: {india_skipped}")
+    if rejected_ids:
+        print(f"Rows rejected by the database: {len(rejected_ids)}")
+        print(f"  job_ids: {sorted(set(rejected_ids))}")
     print(f"{'='*50}")
 
 if __name__ == "__main__":
