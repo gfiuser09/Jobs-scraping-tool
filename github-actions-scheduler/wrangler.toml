@@ -1,0 +1,30 @@
+name = "github-actions-scheduler"
+main = "src/index.js"
+compatibility_date = "2026-09-09"
+
+# Cloudflare evaluates cron expressions in UTC only. IST is a fixed UTC+5:30
+# with no daylight saving, so each UTC time below maps to exactly one IST time
+# all year round.
+#
+#   30 6,10 * * *  ->  12:00 and 16:00 IST  ->  every workflow except level 5
+#   30 7,11 * * *  ->  13:00 and 17:00 IST  ->  the two level 5 workflows
+#
+# Two entries rather than four separate ones: the hour list covers both firing
+# times of a batch, and the Worker switches on `event.cron`, so one expression
+# per batch is all the routing needs. It also keeps us well inside the free
+# plan's limit of 5 Cron Triggers per account.
+[triggers]
+crons = ["30 6,10 * * *", "30 7,11 * * *"]
+
+# Non-secret configuration. The GitHub token is NOT here - it is set separately
+# with `wrangler secret put GITHUB_TOKEN` so it is stored encrypted and never
+# appears in this file or in git history.
+[vars]
+GITHUB_OWNER = "gfiuser09"
+GITHUB_REPO = "Jobs-scraping-tool"
+GITHUB_REF = "main"
+
+# Retains console output so a failed dispatch can be diagnosed from the
+# dashboard afterwards, not just from a live `wrangler tail` session.
+[observability]
+enabled = true

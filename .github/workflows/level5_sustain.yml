@@ -1,13 +1,12 @@
 name: Running level 5 Sustainability
 
 on:
-  # Runs once immediately on every deploy to main, then on the interval below.
+  # Runs once immediately on every deploy to main. The recurring schedule now
+  # lives in the github-actions-scheduler Cloudflare Worker, which dispatches
+  # this workflow at fixed IST times via workflow_dispatch. A schedule: block
+  # here would double-run it.
   push:
     branches: [main]
-  schedule:
-    # Every 6 hours, kept 3 minutes behind level5.yml (the existing offset) so
-    # the two runs don't compete for the same six Groq API keys at once.
-    - cron: "27 */6 * * *"
   workflow_dispatch:
 
 jobs:

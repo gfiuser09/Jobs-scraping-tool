@@ -1,13 +1,12 @@
 name: Running sustain-darwinbox URLs
 
 on:
-  # Runs once immediately on every deploy to main, then on the interval below.
+  # Runs once immediately on every deploy to main. The recurring schedule now
+  # lives in the github-actions-scheduler Cloudflare Worker, which dispatches
+  # this workflow at fixed IST times via workflow_dispatch. A schedule: block
+  # here would double-run it.
   push:
     branches: [main]
-  schedule:
-    # Every 12 hours. The minute offset keeps this 3 min apart from the other
-    # scheduled workflows so they don't all start at once.
-    - cron: "45 */12 * * *"
   workflow_dispatch:
 
 jobs:

@@ -1,13 +1,12 @@
 name: Running level 5
 
 on:
-  # Runs once immediately on every deploy to main, then on the interval below.
+  # Runs once immediately on every deploy to main. The recurring schedule now
+  # lives in the github-actions-scheduler Cloudflare Worker, which dispatches
+  # this workflow at fixed IST times via workflow_dispatch. A schedule: block
+  # here would double-run it.
   push:
     branches: [main]
-  schedule:
-    # Every 6 hours. Minute :24 is unused by the 12-hourly workflows, so these
-    # runs never land on the same minute as one of those.
-    - cron: "24 */6 * * *"
   workflow_dispatch:
 
 jobs:
